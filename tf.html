@@ -1,0 +1,14 @@
+<script src="face-api.min.js"></script>
+<script>
+console.log(faceapi.nets)
+
+async function init() {
+
+await faceapi.nets.tinyFaceDetector.loadFromUri('https://github.com/justadudewhohacks/face-api.js/raw/master/weights/')
+
+}
+
+
+init()
+
+</script>
