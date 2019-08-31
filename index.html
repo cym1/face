@@ -1,0 +1,248 @@
+<!-- The core Firebase JS SDK is always required and must be listed first -->
+<script src="https://www.gstatic.com/firebasejs/6.5.0/firebase-app.js"></script>
+
+<!-- TODO: Add SDKs for Firebase products that you want to use
+     https://firebase.google.com/docs/web/setup#config-web-app -->
+<script src="https://www.gstatic.com/firebasejs/6.5.0/firebase-firestore.js"></script>
+<script src="https://www.gstatic.com/firebasejs/6.5.0/firebase-storage.js"></script>
+
+<script>
+  // Your web app's Firebase configuration
+  var firebaseConfig = {
+    apiKey: "AIzaSyB-Ds-0dxRU2RcNI6FsP5X80u5kbc4ZZEQ",
+    authDomain: "face-334ca.firebaseapp.com",
+    databaseURL: "https://face-334ca.firebaseio.com",
+    projectId: "face-334ca",
+    storageBucket: "gs://face-334ca.appspot.com/",
+    messagingSenderId: "35183593470",
+    appId: "1:35183593470:web:aee8acd81bcb9120"
+  };
+  // Initialize Firebase
+  firebase.initializeApp(firebaseConfig);
+
+  // Get a reference to the database service
+  var database = firebase.firestore();
+  var storage = firebase.storage();
+
+</script>
+
+<script src="https://cym1.github.io/face/face-api.min.js"></script>
+<script src="https://ajax.googleapis.com/ajax/libs/jquery/2.1.1/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/mathjs/6.2.0/math.min.js"></script>
+
+<script>
+
+function uuidv4() {
+  return ([1e7]+-1e3+-4e3+-8e3+-1e11).replace(/[018]/g, c =>
+    (c ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> c / 4).toString(16)
+  )
+}
+
+
+async function init() {
+
+await faceapi.nets.tinyFaceDetector.loadFromUri('https://cym1.github.io/face/models/')
+await faceapi.nets.faceLandmark68TinyNet.loadFromUri('https://cym1.github.io/face/models/')
+await faceapi.nets.faceRecognitionNet.loadFromUri('https://cym1.github.io/face/models/')
+  
+}
+
+
+function writeUserData(descriptor) {
+    
+    var picName  = uuidv4()
+
+    var person = prompt("Please enter the name:", "");
+    if (person == null || person == "") {
+      return;
+    }
+    database.collection("profiles").add({
+      name: person,
+      descriptor: descriptor,
+      pictures: [picName]
+    }).then(function(docRef) {
+      console.log("Document written with ID: ", docRef.id);
+ 
+
+      var file = document.getElementById('attachment').files[0]
+      var ref = firebase.storage().ref().child('images/'+ docRef.id +'/'+ picName +'.jpg')    
+
+      ref.put(file).then(function(snapshot) {
+        console.log('Uploaded a blob or file!');
+      });
+
+    })
+    
+
+}
+
+function search(descriptor) {
+
+  database.collection("profiles").get().then(function(querySnapshot) {
+
+    var allFalse = true;
+    querySnapshot.forEach(function(doc) {
+        // doc.data() is never undefined for query doc snapshots
+        //console.log(doc.id, " => ", doc.data());
+        
+        var dist = math.norm(math.subtract( doc.data().descriptor , descriptor))
+
+        if (dist < 0.45){
+           allFalse = false;
+           $('#results').append('<br><div><br>This person may be: ' + doc.data().name + '</div>')
+           doc.data().pictures.forEach( function(pic){
+               firebase.storage().ref().child('images/'+ doc.id +'/'+ pic +'.jpg').getDownloadURL().then(function(url) {
+               $('#results').append('<br> <img src="' + url + '"></img>')
+               }).catch(function(error) {
+                 // Handle any errors
+               });
+           })
+        } 
+
+
+    });
+    
+    if (allFalse){
+      if (confirm("Not found. Do you want to add this face to database?")) {
+        writeUserData(descriptor);
+      } else {
+        return;
+      }
+    }
+});
+
+
+  return
+}
+
+function download(storageObj){
+  var dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(storageObj));
+  var dlAnchorElem = document.getElementById('downloadAnchorElem');
+  dlAnchorElem.setAttribute("href",     dataStr     );
+  dlAnchorElem.setAttribute("download", "scene.json");
+  dlAnchorElem.click();
+
+}
+
+function fileSelected(input){
+  if (input.files[0].type.match('image.*')){  
+        
+    
+    var reader = new FileReader()
+
+    reader.onload = (function() {
+      input.disabled = true;
+
+      document.getElementById('selectedImg').src = reader.result
+      
+      $('#results').html("");
+
+      detect(document.getElementById('selectedImg'))
+      
+    })
+
+    reader.readAsDataURL(input.files[0])
+    
+  }
+}
+
+function radioHandler(box, descriptor) {
+
+  var faceOverlay = document.getElementById('faceSelection')
+
+  faceOverlay.getContext('2d').clearRect(0, 0, faceOverlay.width, faceOverlay.height);
+
+
+  const drawBox = new faceapi.draw.DrawBox(box, {boxColor:'rgba(0, 255, 0, 1)'})
+  drawBox.draw(faceOverlay)
+
+  targetDescriptor = descriptor
+}
+
+
+async function detect(input){
+  const detections = await faceapi.detectAllFaces(input, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks(true).withFaceDescriptors()
+
+  if (!detections.length) {
+    window.alert("No face detected. Select another image");
+  }
+
+  const displaySize = { width: input.width, height: input.height }
+  // resize the overlay canvas to the input dimensions
+
+  const canvas = document.getElementById('overlay')
+  faceapi.matchDimensions(canvas, displaySize)
+
+  const faceOverlay = document.getElementById('faceSelection')
+  faceapi.matchDimensions(faceOverlay, displaySize)
+
+  // resize the detected boxes in case your displayed image has a different size than the original
+  const resizedDetections = faceapi.resizeResults(detections, displaySize)
+
+  // draw detections into the canvas
+  faceapi.draw.drawDetections(canvas, resizedDetections)
+
+
+  $('#faceList').html("");
+
+  var i;
+  for (i = 0; i < detections.length; i++) {
+    
+    $('#faceList').append('<label for="face'+ i.toString() + '">Face '+ i.toString() + '</label>');
+    $('#faceList').append('<input type="radio" name="face" id="face' + i.toString() +  '"/>');
+
+    (function(i) {
+      document.getElementById('face' + i.toString()).addEventListener("click", function(){radioHandler(resizedDetections[i].detection.box, detections[i].descriptor)}, false);
+    }(i));
+
+  }
+
+  document.getElementById('search').style.display='inline-block';
+  document.getElementById('attachment').disabled = false;
+
+
+}
+
+var targetDescriptor;
+
+
+$(document).ready(function() {
+  
+  document.getElementById('attachment').disabled = true;
+
+  init().then( function(){ document.getElementById('attachment').disabled = false; } )
+
+  document.getElementById('search').addEventListener("click", function(){search(Array.from(targetDescriptor))}, false);
+
+  document.getElementById('selectedImg').addEventListener('load', function(){document.getElementById('container').style.height = document.getElementById('selectedImg').height}, false)
+});
+
+$(window).load(function() {
+  
+});
+
+
+</script>
+
+<a id="downloadAnchorElem" style="display:none"></a>
+
+<input type="file" class="file" id="attachment" onchange="fileSelected(this)"/><br>
+<div id="container">
+
+<img id="selectedImg" style="position:absolute;z-index:1; max-width: 100%; height: auto; margin:auto;" />
+<canvas id='overlay' style="position:absolute;z-index:2" ></canvas>
+<canvas id='faceSelection' style="position:absolute;z-index:3" ></canvas>
+
+</div>
+
+<div id="bottomPanel" style="">
+<form id='faceList'></form>
+<button type="button" id="search" style="display:none">Search</button>
+
+</div>
+
+
+<div id="results">
+
+</div>
+
